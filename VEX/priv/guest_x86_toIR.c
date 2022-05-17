@@ -15326,11 +15326,16 @@ DisResult disInstr_X86_WRK (
    /* All decode failures end up here. */
    if (sigill_diag) {
       vex_printf("vex x86->IR: unhandled instruction bytes: "
-                 "0x%x 0x%x 0x%x 0x%x\n",
+                 "0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
                  getIByte(delta_start+0),
                  getIByte(delta_start+1),
                  getIByte(delta_start+2),
-                 getIByte(delta_start+3));
+                 getIByte(delta_start+3),
+                 getIByte(delta_start+4),
+                 getIByte(delta_start+5),
+                 getIByte(delta_start+6),
+                 getIByte(delta_start+7)
+                 );
    }
 
    /* Tell the dispatcher that this insn cannot be decoded, and so has
