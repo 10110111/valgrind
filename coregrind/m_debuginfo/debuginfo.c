@@ -2765,11 +2765,13 @@ const HChar* VG_(describe_IP)(DiEpoch ep, Addr eip, const InlIPCursor *iipc)
          VG_(sprintf)(ibuf,"%u",lineno);
          APPEND(ibuf);
          APPEND(")");
-      } else if (know_objname) {
+      }
+      if (know_objname) {
          APPEND(" (in ");
          APPEND(buf_obj);
          APPEND(")");
-      } else if (know_fnname) {
+      }
+      if (!know_srcloc && !know_objname && know_fnname) {
          // Nb: do this in two steps because "??)" is a trigraph!
          APPEND(" (in ???");
          APPEND(")");
