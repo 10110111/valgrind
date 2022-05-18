@@ -8593,6 +8593,11 @@ DisResult disInstr_X86_WRK (
            delta = dis_SHIFTX(vbi, sorb, regV, delta, "shlx", Iop_Shl8);
            goto decode_success;
        }
+       if(opc == 0x77 && !vex_L && vex_0F && !(vex_F2||vex_F3||vex_66))
+       {
+           vex_printf("vex x86->IR: found VZEROUPPER, treating as NOP since we don't support AVX\n");
+           goto decode_success;
+       }
 
        goto decode_failure;
    }
