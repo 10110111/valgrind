@@ -8599,6 +8599,37 @@ DisResult disInstr_X86_WRK (
            goto decode_success;
        }
 
+       if(opc == 0x7E && regV==0 && !vex_L && vex_F3 && vex_0F && !(vex_66||vex_F2))
+       {
+           /* VEX.128.F3.0F.WIG 7E /r
+            * VMOVQ xmm1, xmm2/m64 -- move 64 bits from E (mem or lo half xmm)
+            * to G (lo half xmm).  Upper half of G is zeroed out.*/
+
+           vex_printf("vex x86->IR: found VMOVQ xmmA, xmmB/m64\n");
+
+           modrm = getIByte(delta);
+           if (epartIsReg(modrm)) {
+               putXMMRegLane64( gregOfRM(modrm), 0,
+                                getXMMRegLane64( eregOfRM(modrm), 0 ));
+               /* zero bits 127:64 */
+               putXMMRegLane64( gregOfRM(modrm), 1, mkU64(0) );
+               DIP("vmovq %s,%s\n", nameXMMReg(eregOfRM(modrm)),
+                   nameXMMReg(gregOfRM(modrm)));
+               delta += 1;
+           } else {
+               addr = disAMode ( &alen, sorb, delta, dis_buf );
+               /* zero bits 127:64 */
+               putXMMRegLane64( gregOfRM(modrm), 1, mkU64(0) );
+               /* write bits 63:0 */
+               putXMMRegLane64( gregOfRM(modrm), 0,
+                                loadLE(Ity_I64, mkexpr(addr)) );
+               DIP("vmovq %s,%s\n", dis_buf,
+                   nameXMMReg(gregOfRM(modrm)));
+               delta += alen;
+           }
+           goto decode_success;
+       }
+
        goto decode_failure;
    }
 
