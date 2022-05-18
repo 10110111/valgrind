@@ -412,6 +412,38 @@ static inline ULong idULong ( ULong x )
    }								\
 }
 
+/*-------------------------------------------------------------*/
+
+#define ACTIONS_BLSR(DATA_BITS,DATA_UTYPE)			\
+{								\
+   PREAMBLE(DATA_BITS);						\
+   { ULong cf, pf, af, zf, sf, of;				\
+     cf = ((DATA_UTYPE)CC_DEP2 == 0);				\
+     pf = 0;							\
+     af = 0;							\
+     zf = ((DATA_UTYPE)CC_DEP1 == 0) << 6;			\
+     sf = lshift(CC_DEP1, 8 - DATA_BITS) & 0x80;		\
+     of = 0;							\
+     return cf | pf | af | zf | sf | of;			\
+   }								\
+}
+
+/*-------------------------------------------------------------*/
+
+#define ACTIONS_ANDN(DATA_BITS,DATA_UTYPE)			\
+{								\
+   PREAMBLE(DATA_BITS);						\
+   { ULong cf, pf, af, zf, sf, of;				\
+     cf = 0;							\
+     pf = 0;							\
+     af = 0;							\
+     zf = ((DATA_UTYPE)CC_DEP1 == 0) << 6;			\
+     sf = lshift(CC_DEP1, 8 - DATA_BITS) & 0x80;		\
+     of = 0;							\
+     return cf | pf | af | zf | sf | of;			\
+   }								\
+}
+
 
 #if PROFILE_EFLAGS
 
@@ -557,6 +589,9 @@ UInt x86g_calculate_eflags_all_WRK ( UInt cc_op,
                                                 Int,    toUInt   );
       case X86G_CC_OP_SMULL:  ACTIONS_SMUL( 32, Int,    toUInt,
                                                 Long,   idULong );
+
+      case X86G_CC_OP_BLSR32: ACTIONS_BLSR( 32, UInt   );
+      case X86G_CC_OP_ANDN32: ACTIONS_ANDN( 32, UInt   );
 
       default:
          /* shouldn't really make these calls from generated code */

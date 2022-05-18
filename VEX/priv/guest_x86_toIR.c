@@ -8049,6 +8049,41 @@ static IRTemp math_BSWAP ( IRTemp t1, IRType ty )
    return IRTemp_INVALID;
 }
 
+static Long dis_SHIFTX (const VexAbiInfo* vbi, UChar sorb, UChar regV, Long delta,
+                        const HChar* opname, IROp op8)
+{
+   HChar   dis_buf[50];
+   Int     alen;
+   const Int     size = 4;
+   const IRType  ty   = szToITy(size);
+   const IRTemp  src  = newTemp(ty);
+   const IRTemp  amt  = newTemp(ty);
+   const UChar   rm   = getUChar(delta);
+   const UChar   regE = eregOfRM(rm);
+   const UChar   regG = gregOfRM(rm);
+
+   assign( amt, getIReg(size,regV) );
+   if (epartIsReg(rm)) {
+      assign( src, getIReg(size,regE) );
+      DIP("%s %s,%s,%s\n", opname, nameIReg(size,regV),
+                           nameIReg(size,regE), nameIReg(size,regG));
+      delta++;
+   } else {
+      IRTemp addr = disAMode(&alen, sorb, delta, dis_buf);
+      assign( src, loadLE(ty, mkexpr(addr)) );
+      DIP("%s %s,%s,%s\n", opname, nameIReg(size,regV), dis_buf,
+                           nameIReg(size,regG));
+      delta += alen;
+   }
+
+   putIReg(size, regG,
+             binop(mkSizedOp(ty,op8), mkexpr(src),
+                   narrowTo(Ity_I8, binop(mkSizedOp(ty,Iop_And8), mkexpr(amt),
+                                          mkU(ty,8*size-1)))) );
+   /* Flags aren't modified.  */
+   return delta;
+}
+
 /*------------------------------------------------------------*/
 /*--- Disassemble a single instruction                     ---*/
 /*------------------------------------------------------------*/
@@ -8101,6 +8136,23 @@ DisResult disInstr_X86_WRK (
 
    /* Gets set to True if a LOCK prefix is seen. */
    Bool pfx_lock = False;
+
+   /* Gets set to True if a VEX prefix is seen */
+   Bool pfx_vex = False;
+   /* These are set when corresponding prefix is implied by VEX */
+   Bool vex_0F = False;
+   Bool vex_0F38 = False;
+   Bool vex_0F3A = False;
+   Bool vex_66 = False;
+   Bool vex_F2 = False;
+   Bool vex_F3 = False;
+   /* W flag from VEX prefix */
+   Bool vex_W = False;
+   /* L flag from VEX prefix */
+   Bool vex_L = False;
+
+   /* The additional source register from VEX prefix */
+   UChar regV;
 
    /* Set result defaults. */
    dres.whatNext    = Dis_Continue;
@@ -8341,6 +8393,209 @@ DisResult disInstr_X86_WRK (
       }
    }
 
+   /* Handle VEX prefix */
+   {
+       const UChar*const code = guest_code + delta;
+       if (code[0] == 0xC4)
+       {
+           if((code[1] & 0xE0) != 0xE0) // !R!X!B must all be set in 32-bit mode, otherwise it's LES or #UD
+               goto not_vex;
+
+           pfx_vex = True;
+
+           const UChar mmmmm = code[1] & 0x1F;
+           switch(mmmmm)
+           {
+           case 0: break;
+           case 1: vex_0F = True; break;
+           case 2: vex_0F38 = True; break;
+           case 3: vex_0F3A = True; break;
+           default: goto decode_failure;
+           }
+
+           vex_W = (code[2] & 0x80) != 0;
+           vex_L = (code[2] & 4) != 0;
+
+           regV = ~(code[2] >> 3) & 0xF;
+           if(regV > 7)
+               goto decode_failure; // 32-bit mode can't handle high registers
+
+           const UChar pp = code[2] & 3;
+           switch(pp)
+           {
+           case 0: break;
+           case 1: vex_66 = True; break;
+           case 2: vex_F3 = True; break;
+           case 3: vex_F2 = True; break;
+           default: vassert(0); /*NOTREACHED*/
+           }
+
+           delta += 3;
+       }
+       else if(code[0] == 0xC5)
+       {
+           if((code[1] & 0xC0) != 0xC0) // !R and !v3 must be set in 32-bit mode, otherwise it's LDS or #UD
+               goto not_vex;
+
+           pfx_vex = True;
+           vex_0F = True;
+           vex_L = (code[1] & 4) != 0;
+
+           regV = ~((code[1] >> 3)) & 0xF;
+
+           const UChar pp = code[1] & 3;
+           switch(pp)
+           {
+           case 0: break;
+           case 1: vex_66 = True; break;
+           case 2: vex_F3 = True; break;
+           case 3: vex_F2 = True; break;
+           default: vassert(0); /*NOTREACHED*/
+           }
+
+           delta += 2;
+       }
+   }
+
+   not_vex:
+
+   if(pfx_vex)
+   {
+       opc = getUChar(delta);
+       delta++;
+       if(opc == 0xF2 && !vex_L && vex_0F38 && !(vex_66||vex_F2||vex_F3))
+       {
+           vex_printf("vex x86->IR: found ANDN\n");
+           const Int     size = 4;
+                         ty   = szToITy(size);
+           const IRTemp  dst  = newTemp(ty);
+           const IRTemp  src1 = newTemp(ty);
+           const IRTemp  src2 = newTemp(ty);
+           const UChar   rm   = getUChar(delta);
+           const UChar   regE = eregOfRM(rm);
+           const UChar   regG = gregOfRM(rm);
+
+           assign( src1, getIReg(size,regV) );
+           if (epartIsReg(rm)) {
+               assign( src2, getIReg(size,regE) );
+               DIP("andn %s,%s,%s\n", nameIReg(size,regE),
+                   nameIReg(size,regV), nameIReg(size,regG));
+               delta++;
+           } else {
+               addr = disAMode(&alen, sorb, delta, dis_buf);
+               assign( src2, loadLE(ty, mkexpr(addr)) );
+               DIP("andn %s,%s,%s\n", dis_buf, nameIReg(size,regV),
+                   nameIReg(size,regG));
+               delta += alen;
+           }
+
+           assign( dst, binop( mkSizedOp(ty,Iop_And8),
+                               unop( mkSizedOp(ty,Iop_Not8), mkexpr(src1) ),
+                               mkexpr(src2) ) );
+           putIReg( size, regG, mkexpr(dst) );
+           stmt( IRStmt_Put( OFFB_CC_OP,   mkU32(X86G_CC_OP_ANDN32)) );
+           stmt( IRStmt_Put( OFFB_CC_DEP1, widenUto32(mkexpr(dst))) );
+           stmt( IRStmt_Put( OFFB_CC_DEP2, mkU32(0)) );
+           stmt( IRStmt_Put( OFFB_CC_NDEP, mkU32(0) ));
+           goto decode_success;
+       }
+
+       if(opc == 0xF7 && !vex_L && vex_0F38 && !(vex_66||vex_F2||vex_F3))
+       {
+           vex_printf("vex x86->IR: found BEXTR\n");
+           goto decode_failure;
+       }
+
+       if(opc == 0xF3 && !vex_L && vex_0F38 && !(vex_66||vex_F2||vex_F3) && gregOfRM(getUChar(delta)) == 3)
+       {
+           vex_printf("vex x86->IR: found BLSI\n");
+           goto decode_failure;
+       }
+
+       if(opc == 0xF3 && !vex_L && vex_0F38 && !(vex_66||vex_F2||vex_F3) && gregOfRM(getUChar(delta)) == 2)
+       {
+           vex_printf("vex x86->IR: found BLSMSK\n");
+           goto decode_failure;
+       }
+
+       if(opc == 0xF3 && !vex_L && vex_0F38 && !(vex_66||vex_F2||vex_F3) && gregOfRM(getUChar(delta)) == 1)
+       {
+           vex_printf("vex x86->IR: found BLSR\n");
+           const Int     size = 4;
+                         ty   = szToITy(size);
+           const IRTemp  src  = newTemp(ty);
+           const IRTemp  dst  = newTemp(ty);
+           const UChar   rm   = getUChar(delta);
+           const UChar   regE = eregOfRM(rm);
+
+           if (epartIsReg(rm)) {
+               assign( src, getIReg(size,regE) );
+               DIP("blsr %s,%s\n", nameIReg(size,regE), nameIReg(size,regV));
+               delta++;
+           } else {
+               addr = disAMode(&alen, sorb, delta, dis_buf);
+               assign( src, loadLE(ty, mkexpr(addr)) );
+               DIP("blsr %s,%s\n", dis_buf, nameIReg(size,regV));
+               delta += alen;
+           }
+
+           assign( dst, binop(mkSizedOp(ty,Iop_And8),
+                              binop(mkSizedOp(ty,Iop_Sub8), mkexpr(src),
+                                    mkU(ty, 1)), mkexpr(src)) );
+           putIReg( size, regV, mkexpr(dst) );
+           stmt( IRStmt_Put( OFFB_CC_OP, mkU32(X86G_CC_OP_BLSR32)) );
+           stmt( IRStmt_Put( OFFB_CC_DEP1, widenUto32(mkexpr(dst))) );
+           stmt( IRStmt_Put( OFFB_CC_DEP2, widenUto32(mkexpr(src))) );
+           stmt( IRStmt_Put( OFFB_CC_NDEP, mkU32(0) ));
+           goto decode_success;
+       }
+
+       if(opc == 0xF5 && !vex_L && vex_0F38 && !(vex_66||vex_F2||vex_F3))
+       {
+           vex_printf("vex x86->IR: found BZHI\n");
+           goto decode_failure;
+       }
+       if(opc == 0xF6 && !vex_L && vex_0F38 && !(vex_66||vex_F3) && vex_F2)
+       {
+           vex_printf("vex x86->IR: found MULX\n");
+           goto decode_failure;
+       }
+       if(opc == 0xF5 && !vex_L && vex_0F38 && !(vex_66||vex_F3) && vex_F2)
+       {
+           vex_printf("vex x86->IR: found PDEP\n");
+           goto decode_failure;
+       }
+       if(opc == 0xF5 && !vex_L && vex_0F38 && !(vex_66||vex_F2) && vex_F3)
+       {
+           vex_printf("vex x86->IR: found PEXT\n");
+           goto decode_failure;
+       }
+       if(opc == 0xF0 && !vex_L && vex_0F3A && !(vex_66||vex_F3) && vex_F2)
+       {
+           vex_printf("vex x86->IR: found RORX\n");
+           goto decode_failure;
+       }
+       if(opc == 0xF7 && !vex_L && vex_0F38 && !(vex_66||vex_F2) && vex_F3)
+       {
+           vex_printf("vex x86->IR: found SARX\n");
+           delta = dis_SHIFTX(vbi, sorb, regV, delta, "sarx", Iop_Sar8);
+           goto decode_success;
+       }
+       if(opc == 0xF7 && !vex_L && vex_0F38 && !(vex_66||vex_F3) && vex_F2)
+       {
+           vex_printf("vex x86->IR: found SHRX\n");
+           delta = dis_SHIFTX(vbi, sorb, regV, delta, "shrx", Iop_Shr8);
+           goto decode_success;
+       }
+       if(opc == 0xF7 && !vex_L && vex_0F38 && !(vex_F2||vex_F3) && vex_66)
+       {
+           vex_printf("vex x86->IR: found SHLX\n");
+           delta = dis_SHIFTX(vbi, sorb, regV, delta, "shlx", Iop_Shl8);
+           goto decode_success;
+       }
+
+       goto decode_failure;
+   }
 
    /* ---------------------------------------------------- */
    /* --- The SSE decoder.                             --- */

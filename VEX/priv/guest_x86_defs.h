@@ -383,6 +383,9 @@ enum {
     X86G_CC_OP_SMULW,   /* 38 DEP1 = argL, DEP2 = argR, NDEP = unused */
     X86G_CC_OP_SMULL,   /* 39 */
 
+    X86G_CC_OP_BLSR32,  /* 40 DEP1 = res, DEP2 = arg, NDEP = unused */
+    X86G_CC_OP_ANDN32,  /* 51 DEP1 = res, DEP2 = 0, NDEP = unused */
+
     X86G_CC_OP_NUMBER
 };
 
