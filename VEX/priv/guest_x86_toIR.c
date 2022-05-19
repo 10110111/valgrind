@@ -8732,6 +8732,15 @@ DisResult disInstr_X86_WRK (
            goto decode_success;
        }
 
+       if(opc == 0x57 && !vex_L && vex_66 && vex_0F && (!vex_F2||vex_F3))
+       {
+           /* VEX.128.66.0F.WIG 57 /r
+            * VXORPD xmm1,xmm2, xmm3/m128 */
+           vex_printf("vex x86->IR: found VXORPD\n");
+           delta = dis_SSE_V_op_E_to_G_all(sorb, regV, delta, "vxorpd", Iop_XorV128);
+           goto decode_success;
+       }
+
        if(opc == 0x6C && !vex_L && vex_66 && vex_0F && (!vex_F2||vex_F3))
        {
            /* VEX.128.66.0F.WIG 6C/r
