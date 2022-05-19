@@ -7031,6 +7031,88 @@ static UInt dis_SSE_E_to_G_all_wrk (
    }
 }
 
+/* Worker function; do not call directly.
+   Handles full width G = V `op` E   and   G = (not V) `op` E.
+*/
+
+static UInt dis_SSE_V_op_E_to_G_all_wrk (
+               UChar sorb, UChar regV, Int delta,
+               const HChar* opname, IROp op,
+               Bool   invertV
+            )
+{
+   HChar   dis_buf[50];
+   Int     alen;
+   IRTemp  addr;
+   UChar   rm = getIByte(delta);
+   IRExpr* vpart
+      = invertV ? unop(Iop_NotV128, getXMMReg(regV)) : getXMMReg(regV);
+   if (epartIsReg(rm)) {
+      putXMMReg(
+         gregOfRM(rm),
+         requiresRMode(op)
+            ? triop(op, get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        vpart,
+                        getXMMReg(eregOfRM(rm)))
+            : binop(op, vpart,
+                        getXMMReg(eregOfRM(rm)))
+      );
+      DIP("%s %s,%s,%s\n", opname,
+                           nameXMMReg(eregOfRM(rm)),
+                           nameXMMReg(regV),
+                           nameXMMReg(gregOfRM(rm)) );
+      return delta+1;
+   } else {
+      addr = disAMode ( &alen, sorb, delta, dis_buf );
+      putXMMReg(
+         gregOfRM(rm),
+         requiresRMode(op)
+            ? triop(op, get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        vpart,
+                        loadLE(Ity_V128, mkexpr(addr)))
+            : binop(op, vpart,
+                        loadLE(Ity_V128, mkexpr(addr)))
+      );
+      DIP("%s %s,%s,%s\n", opname,
+                           dis_buf,
+                           nameXMMReg(regV),
+                           nameXMMReg(gregOfRM(rm)) );
+      return delta+alen;
+   }
+}
+
+/* SSE integer binary operation: G = V `op` E
+*/
+static UInt dis_SSEint_V_op_E_to_G(
+               UChar sorb, UChar regV, Int delta,
+               const HChar* opname, IROp op
+            )
+{
+   HChar   dis_buf[50];
+   Int     alen;
+   IRTemp  addr;
+   UChar   rm = getIByte(delta);
+   IRExpr* vpart = getXMMReg(regV);
+   IRExpr* epart = NULL;
+   if (epartIsReg(rm)) {
+      epart = getXMMReg(eregOfRM(rm));
+      DIP("%s %s,%s,%s\n", opname,
+                           nameXMMReg(eregOfRM(rm)),
+                           nameXMMReg(regV),
+                           nameXMMReg(gregOfRM(rm)) );
+      delta += 1;
+   } else {
+      addr  = disAMode ( &alen, sorb, delta, dis_buf );
+      epart = loadLE(Ity_V128, mkexpr(addr));
+      DIP("%s %s,%s,%s\n", opname,
+                           dis_buf,
+                           nameXMMReg(regV),
+                           nameXMMReg(gregOfRM(rm)) );
+      delta += alen;
+   }
+   putXMMReg( gregOfRM(rm), binop(op, epart, vpart) );
+   return delta;
+}
 
 /* All lanes SSE binary operation, G = G `op` E. */
 
@@ -7038,6 +7120,14 @@ static
 UInt dis_SSE_E_to_G_all ( UChar sorb, Int delta, const HChar* opname, IROp op )
 {
    return dis_SSE_E_to_G_all_wrk( sorb, delta, opname, op, False );
+}
+
+/* All lanes SSE binary operation, G = V `op` E. */
+
+static
+UInt dis_SSE_V_op_E_to_G_all ( UChar sorb, UChar regV, Int delta, const HChar* opname, IROp op )
+{
+   return dis_SSE_V_op_E_to_G_all_wrk( sorb, regV, delta, opname, op, False );
 }
 
 /* All lanes SSE binary operation, G = (not G) `op` E. */
@@ -8593,11 +8683,14 @@ DisResult disInstr_X86_WRK (
            delta = dis_SHIFTX(vbi, sorb, regV, delta, "shlx", Iop_Shl8);
            goto decode_success;
        }
+
        if(opc == 0x77 && !vex_L && vex_0F && !(vex_F2||vex_F3||vex_66))
        {
            vex_printf("vex x86->IR: found VZEROUPPER, treating as NOP since we don't support AVX\n");
            goto decode_success;
        }
+
+       /* VEX-encoded SSE instructions */
 
        if(opc == 0x7E && regV==0 && !vex_L && vex_F3 && vex_0F && !(vex_66||vex_F2))
        {
@@ -8627,6 +8720,24 @@ DisResult disInstr_X86_WRK (
                    nameXMMReg(gregOfRM(modrm)));
                delta += alen;
            }
+           goto decode_success;
+       }
+
+       if(opc == 0xEF && !vex_L && vex_66 && vex_0F && !(vex_F2||vex_F3))
+       {
+           /* VEX.128.66.0F.WIG EF /r
+            * VPXOR xmm1, xmm2, xmm3/m128 */
+           vex_printf("vex x86->IR: found VPXOR\n");
+           delta = dis_SSE_V_op_E_to_G_all(sorb, regV, delta, "vpxor", Iop_XorV128);
+           goto decode_success;
+       }
+
+       if(opc == 0x6C && !vex_L && vex_66 && vex_0F && (!vex_F2||vex_F3))
+       {
+           /* VEX.128.66.0F.WIG 6C/r
+            * VPUNPCKLQDQ xmm1, xmm2, xmm3/m128 */
+           vex_printf("vex x86->IR: found VPUNPCKLQDQ\n");
+           delta = dis_SSEint_V_op_E_to_G(sorb, regV, delta, "vpunpcklqdq", Iop_InterleaveLO64x2);
            goto decode_success;
        }
 
