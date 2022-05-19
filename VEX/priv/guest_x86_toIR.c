@@ -8723,6 +8723,67 @@ DisResult disInstr_X86_WRK (
            goto decode_success;
        }
 
+       if(opc == 0x10 && regV==0 && vex_F2 && vex_0F && !(vex_66||vex_F3))
+       {
+           /* VEX.LIG.F2.0F.WIG 10 /r
+            * VMOVSD xmm1, xmm2, xmm3 -- Merge scalar double-precision floating-point value from xmm2 and xmm3 to xmm1 register
+            * or
+            * VMOVSD xmm1, m64 -- Load scalar double-precision floating-point value from m64 to xmm1 register, clearing bits 127:64. */
+
+           modrm = getIByte(delta);
+           if (epartIsReg(modrm)) {
+               vex_printf("vex x86->IR: found VMOVSD xmmA, xmmB, xmmC\n");
+
+               putXMMRegLane64( gregOfRM(modrm), 0,
+                                getXMMRegLane64( eregOfRM(modrm), 0 ));
+               putXMMRegLane64( gregOfRM(modrm), 1, getXMMRegLane64(regV, 1 ) );
+               DIP("vmovsd %s,%s,%s\n", nameXMMReg(eregOfRM(modrm)), nameXMMReg(regV),
+                                        nameXMMReg(gregOfRM(modrm)));
+               delta += 1;
+           } else {
+               vex_printf("vex x86->IR: found VMOVSD xmmA, m64\n");
+
+               addr = disAMode ( &alen, sorb, delta, dis_buf );
+               /* zero bits 127:64 */
+               putXMMRegLane64( gregOfRM(modrm), 1, mkU64(0) );
+               /* write bits 63:0 */
+               putXMMRegLane64( gregOfRM(modrm), 0,
+                                loadLE(Ity_I64, mkexpr(addr)) );
+               DIP("vmovsd %s,%s\n", dis_buf, nameXMMReg(gregOfRM(modrm)));
+               delta += alen;
+           }
+           goto decode_success;
+       }
+
+       if(opc == 0x11 && regV==0 && vex_F2 && vex_0F && !(vex_66||vex_F3))
+       {
+           /* VEX.LIG.F2.0F.WIG 11 /r
+            * VMOVSD xmm3, xmm2, xmm1 -- Merge scalar double-precision floating-point value from xmm2 and xmm1 registers to xmm3
+            * or
+            * VMOVSD m64, xmm1 -- Store scalar double-precision floating-point value from xmm1 register to m64. */
+
+           modrm = getIByte(delta);
+           if (epartIsReg(modrm)) {
+               vex_printf("vex x86->IR: found VMOVSD xmmC, xmmB, xmmA\n");
+
+               putXMMRegLane64( eregOfRM(modrm), 0,
+                                getXMMRegLane64( gregOfRM(modrm), 0 ));
+               putXMMRegLane64( eregOfRM(modrm), 1, getXMMRegLane64(regV, 1 ) );
+               DIP("vmovsd %s,%s,%s\n", nameXMMReg(gregOfRM(modrm)), nameXMMReg(regV),
+                                        nameXMMReg(eregOfRM(modrm)));
+               delta += 1;
+           } else {
+               vex_printf("vex x86->IR: found VMOVSD m64, xmmA\n");
+
+               addr = disAMode ( &alen, sorb, delta, dis_buf );
+               storeLE( mkexpr(addr),
+                        getXMMRegLane64(gregOfRM(modrm), 0) );
+               DIP("vmovsd %s,%s\n", nameXMMReg(gregOfRM(modrm)), dis_buf);
+               delta += alen;
+           }
+           goto decode_success;
+       }
+
        if(opc == 0xEF && !vex_L && vex_66 && vex_0F && !(vex_F2||vex_F3))
        {
            /* VEX.128.66.0F.WIG EF /r
