@@ -8794,7 +8794,7 @@ DisResult disInstr_X86_WRK (
            vex_printf("vex x86->IR: found BZHI\n");
            goto decode_failure;
        }
-       if(opc == 0xF6 && !vex_L && vex_0F38 && !(vex_66||vex_F3) && vex_F2)
+       if(opc == 0xF6 && !vex_L && vex_0F38 && vex_F2)
        {
            /* MULX r/m32, r32b, r32a = VEX.NDD.LZ.F2.0F38.W0 F6 /r */
 
@@ -8830,17 +8830,17 @@ DisResult disInstr_X86_WRK (
            /* Flags aren't modified.  */
            goto decode_success;
        }
-       if(opc == 0xF5 && !vex_L && vex_0F38 && !(vex_66||vex_F3) && vex_F2)
+       if(opc == 0xF5 && !vex_L && vex_0F38 && vex_F2)
        {
            vex_printf("vex x86->IR: found PDEP\n");
            goto decode_failure;
        }
-       if(opc == 0xF5 && !vex_L && vex_0F38 && !(vex_66||vex_F2) && vex_F3)
+       if(opc == 0xF5 && !vex_L && vex_0F38 && vex_F3)
        {
            vex_printf("vex x86->IR: found PEXT\n");
            goto decode_failure;
        }
-       if(opc == 0xF0 && !vex_L && !vex_W && vex_0F3A && !(vex_66||vex_F3) && vex_F2)
+       if(opc == 0xF0 && !vex_L && !vex_W && vex_0F3A && vex_F2)
        {
            /* RORX imm8, r/m32, r32a = VEX.LZ.F2.0F3A.W0 F0 /r /i */
 
@@ -8880,19 +8880,19 @@ DisResult disInstr_X86_WRK (
            /* Flags aren't modified.  */
            goto decode_success;
        }
-       if(opc == 0xF7 && !vex_L && vex_0F38 && !(vex_66||vex_F2) && vex_F3)
+       if(opc == 0xF7 && !vex_L && vex_0F38 && vex_F3)
        {
            vex_printf("vex x86->IR: found SARX\n");
            delta = dis_SHIFTX(vbi, sorb, regV, delta, "sarx", Iop_Sar8);
            goto decode_success;
        }
-       if(opc == 0xF7 && !vex_L && vex_0F38 && !(vex_66||vex_F3) && vex_F2)
+       if(opc == 0xF7 && !vex_L && vex_0F38 && vex_F2)
        {
            vex_printf("vex x86->IR: found SHRX\n");
            delta = dis_SHIFTX(vbi, sorb, regV, delta, "shrx", Iop_Shr8);
            goto decode_success;
        }
-       if(opc == 0xF7 && !vex_L && vex_0F38 && !(vex_F2||vex_F3) && vex_66)
+       if(opc == 0xF7 && !vex_L && vex_0F38 && vex_66)
        {
            vex_printf("vex x86->IR: found SHLX\n");
            delta = dis_SHIFTX(vbi, sorb, regV, delta, "shlx", Iop_Shl8);
@@ -8907,7 +8907,7 @@ DisResult disInstr_X86_WRK (
 
        /* VEX-encoded SSE4.1 instructions */
 
-       if(opc == 0x17 && regV==0 && !vex_L && vex_66 && vex_0F38 && !(vex_F2||vex_F3))
+       if(opc == 0x17 && regV==0 && !vex_L && vex_66 && vex_0F38)
        {
            /* VEX.128.66.0F38.WIG 17 /r = VPTEST xmm1, xmm2/m128 */
 
@@ -8919,7 +8919,7 @@ DisResult disInstr_X86_WRK (
 
        /* VEX-encoded SSE instructions */
 
-       if(opc == 0x7E && regV==0 && !vex_L && vex_F3 && vex_0F && !(vex_66||vex_F2))
+       if(opc == 0x7E && regV==0 && !vex_L && vex_F3 && vex_0F)
        {
            /* VEX.128.F3.0F.WIG 7E /r
             * VMOVQ xmm1, xmm2/m64 -- move 64 bits from E (mem or lo half xmm)
@@ -8949,7 +8949,7 @@ DisResult disInstr_X86_WRK (
            }
            goto decode_success;
        }
-       if(opc == 0xD6 && regV==0 && !vex_L && vex_66 && vex_0F && !(vex_F2||vex_F3))
+       if(opc == 0xD6 && regV==0 && !vex_L && vex_66 && vex_0F)
        {
            /* VEX.128.66.0F.WIG D6 /r
             * VMOVQ xmm1/m64, xmm2 -- Move quadword from xmm2 register to xmm1/m64. */
@@ -8973,7 +8973,7 @@ DisResult disInstr_X86_WRK (
            goto decode_success;
        }
 
-       if(opc == 0x10 && regV==0 && vex_F2 && vex_0F && !(vex_66||vex_F3))
+       if(opc == 0x10 && regV==0 && vex_F2 && vex_0F)
        {
            /* VEX.LIG.F2.0F.WIG 10 /r
             * VMOVSD xmm1, xmm2, xmm3 -- Merge scalar double-precision floating-point value from xmm2 and xmm3 to xmm1 register
@@ -9005,7 +9005,7 @@ DisResult disInstr_X86_WRK (
            goto decode_success;
        }
 
-       if(opc == 0x11 && regV==0 && vex_F2 && vex_0F && !(vex_66||vex_F3))
+       if(opc == 0x11 && regV==0 && vex_F2 && vex_0F)
        {
            /* VEX.LIG.F2.0F.WIG 11 /r
             * VMOVSD xmm3, xmm2, xmm1 -- Merge scalar double-precision floating-point value from xmm2 and xmm1 registers to xmm3
@@ -9034,7 +9034,7 @@ DisResult disInstr_X86_WRK (
            goto decode_success;
        }
 
-       if(opc == 0x6F && regV==0 && vex_F3 && vex_0F && !(vex_66||vex_F2))
+       if(opc == 0x6F && regV==0 && vex_F3 && vex_0F)
        {
            /* VEX.128.F3.0F.WIG 6F /r
             * VMOVDQU xmm1, xmm2/m128 -- Move unaligned packed integer values from xmm2/m128 to xmm1. */
@@ -9057,7 +9057,7 @@ DisResult disInstr_X86_WRK (
            }
            goto decode_success;
        }
-       if(opc == 0x7F && regV==0 && vex_F3 && vex_0F && !(vex_66||vex_F2))
+       if(opc == 0x7F && regV==0 && vex_F3 && vex_0F)
        {
            /* VEX.128.F3.0F.WIG 7F /r
             * VMOVDQU xmm2/m128, xmm1 -- Move unaligned packed integer values from xmm1 to xmm2/m128. */
@@ -9136,7 +9136,7 @@ DisResult disInstr_X86_WRK (
            }
        }
 
-       if(opc == 0x6E && regV==0 && !vex_L && vex_66 && vex_0F && !vex_W && !(vex_F2||vex_F3))
+       if(opc == 0x6E && regV==0 && !vex_L && vex_66 && vex_0F && !vex_W)
        {
            /* VEX.128.66.0F.W0 6E /r
             * VMOVD xmm1, r32/m32 -- move 32 bits from E (mem or lo part xmm)
@@ -9165,7 +9165,7 @@ DisResult disInstr_X86_WRK (
            goto decode_success;
        }
 
-       if(opc == 0xEF && !vex_L && vex_66 && vex_0F && !(vex_F2||vex_F3))
+       if(opc == 0xEF && !vex_L && vex_66 && vex_0F)
        {
            /* VEX.128.66.0F.WIG EF /r
             * VPXOR xmm1, xmm2, xmm3/m128 */
