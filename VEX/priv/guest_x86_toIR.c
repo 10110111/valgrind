@@ -8918,6 +8918,29 @@ DisResult disInstr_X86_WRK (
            }
            goto decode_success;
        }
+       if(opc == 0xD6 && regV==0 && !vex_L && vex_66 && vex_0F && !(vex_F2||vex_F3))
+       {
+           /* VEX.128.66.0F.WIG D6 /r
+            * VMOVQ xmm1/m64, xmm2 -- Move quadword from xmm2 register to xmm1/m64. */
+
+           vex_printf("vex x86->IR: found VMOVQ xmmA/m64, xmmB\n");
+
+           modrm = getIByte(delta);
+           if (epartIsReg(modrm)) {
+               putXMMRegLane64( eregOfRM(modrm), 0,
+                                getXMMRegLane64( gregOfRM(modrm), 0 ));
+               /* zero bits 127:64 */
+               putXMMRegLane64( eregOfRM(modrm), 1, mkU64(0) );
+               DIP("vmovq %s,%s\n", nameXMMReg(gregOfRM(modrm)),
+                                    nameXMMReg(eregOfRM(modrm)));
+           } else {
+               addr = disAMode ( &alen, sorb, delta, dis_buf );
+               storeLE( mkexpr(addr), getXMMRegLane64( gregOfRM(modrm), 0 ));
+               DIP("vmovq %s,%s\n", nameXMMReg(gregOfRM(modrm)), dis_buf );
+               delta += alen;
+           }
+           goto decode_success;
+       }
 
        if(opc == 0x10 && regV==0 && vex_F2 && vex_0F && !(vex_66||vex_F3))
        {
