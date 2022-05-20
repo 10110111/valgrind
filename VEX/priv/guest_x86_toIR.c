@@ -8174,6 +8174,155 @@ static Long dis_SHIFTX (const VexAbiInfo* vbi, UChar sorb, UChar regV, Long delt
    return delta;
 }
 
+static void finish_xTESTy ( IRTemp andV, IRTemp andnV, Int sign )
+{
+   /* Set Z=1 iff (vecE & vecG) == 0
+      Set C=1 iff (vecE & not vecG) == 0
+   */
+
+   /* andV, andnV:  vecE & vecG,  vecE and not(vecG) */
+
+   /* andV resp. andnV, reduced to 64-bit values, by or-ing the top
+      and bottom 64-bits together.  It relies on this trick:
+
+      InterleaveLO64x2([a,b],[c,d]) == [b,d]    hence
+
+      InterleaveLO64x2([a,b],[a,b]) == [b,b]    and similarly
+      InterleaveHI64x2([a,b],[a,b]) == [a,a]
+
+      and so the OR of the above 2 exprs produces
+      [a OR b, a OR b], from which we simply take the lower half.
+   */
+   IRTemp and64  = newTemp(Ity_I64);
+   IRTemp andn64 = newTemp(Ity_I64);
+
+   assign(and64,
+          unop(Iop_V128to64,
+               binop(Iop_OrV128,
+                     binop(Iop_InterleaveLO64x2,
+                           mkexpr(andV), mkexpr(andV)),
+                     binop(Iop_InterleaveHI64x2,
+                           mkexpr(andV), mkexpr(andV)))));
+
+   assign(andn64,
+          unop(Iop_V128to64,
+               binop(Iop_OrV128,
+                     binop(Iop_InterleaveLO64x2,
+                           mkexpr(andnV), mkexpr(andnV)),
+                     binop(Iop_InterleaveHI64x2,
+                           mkexpr(andnV), mkexpr(andnV)))));
+
+   IRTemp z64 = newTemp(Ity_I64);
+   IRTemp c64 = newTemp(Ity_I64);
+   if (sign == 64) {
+      /* When only interested in the most significant bit, just shift
+         arithmetically right and negate.  */
+      assign(z64,
+             unop(Iop_Not64,
+                  binop(Iop_Sar64, mkexpr(and64), mkU8(63))));
+
+      assign(c64,
+             unop(Iop_Not64,
+                  binop(Iop_Sar64, mkexpr(andn64), mkU8(63))));
+   } else {
+      if (sign == 32) {
+         /* When interested in bit 31 and bit 63, mask those bits and
+            fallthrough into the PTEST handling.  */
+         IRTemp t0 = newTemp(Ity_I64);
+         IRTemp t1 = newTemp(Ity_I64);
+         IRTemp t2 = newTemp(Ity_I64);
+         assign(t0, mkU64(0x8000000080000000ULL));
+         assign(t1, binop(Iop_And64, mkexpr(and64), mkexpr(t0)));
+         assign(t2, binop(Iop_And64, mkexpr(andn64), mkexpr(t0)));
+         and64 = t1;
+         andn64 = t2;
+      }
+      /* Now convert and64, andn64 to all-zeroes or all-1s, so we can
+         slice out the Z and C bits conveniently.  We use the standard
+         trick all-zeroes -> all-zeroes, anything-else -> all-ones
+         done by "(x | -x) >>s (word-size - 1)".
+      */
+      assign(z64,
+             unop(Iop_Not64,
+                  binop(Iop_Sar64,
+                        binop(Iop_Or64,
+                              binop(Iop_Sub64, mkU64(0), mkexpr(and64)),
+                                    mkexpr(and64)), mkU8(63))));
+
+      assign(c64,
+             unop(Iop_Not64,
+                  binop(Iop_Sar64,
+                        binop(Iop_Or64,
+                              binop(Iop_Sub64, mkU64(0), mkexpr(andn64)),
+                                    mkexpr(andn64)), mkU8(63))));
+   }
+
+   /* And finally, slice out the Z and C flags and set the flags
+      thunk to COPY for them.  OSAP are set to zero. */
+   IRTemp newOSZACP = newTemp(Ity_I64);
+   assign(newOSZACP,
+          binop(Iop_Or64,
+                binop(Iop_And64, mkexpr(z64), mkU64(X86G_CC_MASK_Z)),
+                binop(Iop_And64, mkexpr(c64), mkU64(X86G_CC_MASK_C))));
+
+   stmt( IRStmt_Put( OFFB_CC_DEP1, mkexpr(newOSZACP)));
+   stmt( IRStmt_Put( OFFB_CC_OP,   mkU32(X86G_CC_OP_COPY) ));
+   stmt( IRStmt_Put( OFFB_CC_DEP2, mkU32(0) ));
+   stmt( IRStmt_Put( OFFB_CC_NDEP, mkU32(0) ));
+}
+/* Handles 128 bit versions of VPTEST, VTESTPS or VTESTPD.
+   sign is 0 for VPTEST insn, 32 for VTESTPS and 64 for VTESTPD. */
+static Long dis_xTESTy_128 ( const VexAbiInfo* vbi, UChar sorb,
+                             Long delta, Bool isAvx, Int sign )
+{
+   IRTemp addr   = IRTemp_INVALID;
+   Int    alen   = 0;
+   HChar  dis_buf[50];
+   UChar  modrm  = getUChar(delta);
+   UInt   rG     = gregOfRM(modrm);
+   IRTemp vecE = newTemp(Ity_V128);
+   IRTemp vecG = newTemp(Ity_V128);
+
+   if ( epartIsReg(modrm) ) {
+      UInt rE = eregOfRM(modrm);
+      assign(vecE, getXMMReg(rE));
+      delta += 1;
+      DIP( "%s%stest%s %s,%s\n",
+           isAvx ? "v" : "", sign == 0 ? "p" : "",
+           sign == 0 ? "" : sign == 32 ? "ps" : "pd",
+           nameXMMReg(rE), nameXMMReg(rG) );
+   } else {
+      addr = disAMode(&alen, sorb, delta, dis_buf);
+      if (!isAvx)
+         gen_SEGV_if_not_16_aligned(addr);
+      assign(vecE, loadLE( Ity_V128, mkexpr(addr) ));
+      delta += alen;
+      DIP( "%s%stest%s %s,%s\n",
+           isAvx ? "v" : "", sign == 0 ? "p" : "",
+           sign == 0 ? "" : sign == 32 ? "ps" : "pd",
+           dis_buf, nameXMMReg(rG) );
+   }
+
+   assign(vecG, getXMMReg(rG));
+
+   /* Set Z=1 iff (vecE & vecG) == 0
+      Set C=1 iff (vecE & not vecG) == 0
+   */
+
+   /* andV, andnV:  vecE & vecG,  vecE and not(vecG) */
+   IRTemp andV  = newTemp(Ity_V128);
+   IRTemp andnV = newTemp(Ity_V128);
+   assign(andV,  binop(Iop_AndV128, mkexpr(vecE), mkexpr(vecG)));
+   assign(andnV, binop(Iop_AndV128,
+                       mkexpr(vecE),
+                       binop(Iop_XorV128, mkexpr(vecG),
+                                          mkV128(0xFFFF))));
+
+   finish_xTESTy ( andV, andnV, sign );
+   return delta;
+}
+
+
 /*------------------------------------------------------------*/
 /*--- Disassemble a single instruction                     ---*/
 /*------------------------------------------------------------*/
@@ -8722,6 +8871,18 @@ DisResult disInstr_X86_WRK (
        if(opc == 0x77 && !vex_L && vex_0F && !(vex_F2||vex_F3||vex_66))
        {
            vex_printf("vex x86->IR: found VZEROUPPER, treating as NOP since we don't support AVX\n");
+           goto decode_success;
+       }
+
+       /* VEX-encoded SSE4.1 instructions */
+
+       if(opc == 0x17 && regV==0 && !vex_L && vex_66 && vex_0F38 && !(vex_F2||vex_F3))
+       {
+           /* VEX.128.66.0F38.WIG 17 /r = VPTEST xmm1, xmm2/m128 */
+
+           vex_printf("vex x86->IR: found VPTEST xmm1, xmm2/m128\n");
+
+           delta = dis_xTESTy_128( vbi, sorb, delta, True/*isAvx*/, 0 );
            goto decode_success;
        }
 
