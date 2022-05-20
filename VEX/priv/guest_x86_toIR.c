@@ -9034,47 +9034,55 @@ DisResult disInstr_X86_WRK (
            goto decode_success;
        }
 
-       if(opc == 0x6F && regV==0 && vex_F3 && vex_0F)
+       if(opc == 0x6F && regV==0 && (vex_F3||vex_66) && vex_0F)
        {
            /* VEX.128.F3.0F.WIG 6F /r
-            * VMOVDQU xmm1, xmm2/m128 -- Move unaligned packed integer values from xmm2/m128 to xmm1. */
-           vex_printf("vex x86->IR: found VMOVDQU xmmA, xmmB/m128\n");
+            * VMOVDQU xmm1, xmm2/m128 -- Move unaligned packed integer values from xmm2/m128 to xmm1.
+            * or
+            * VEX.128.66.0F.WIG 6F /r
+            * VMOVDQA xmm1, xmm2/m128 -- Move aligned packed integer values from xmm2/mem to xmm1. */
+
+           vex_printf("vex x86->IR: found VMOVDQ%c xmmA, xmmB/m128\n", vex_66 ? 'A' : 'U');
 
            modrm = getIByte(delta);
            if (epartIsReg(modrm)) {
                putXMMReg( gregOfRM(modrm),
                           getXMMReg( eregOfRM(modrm) ));
-               DIP("vmovdqu %s,%s\n", nameXMMReg(eregOfRM(modrm)),
+               DIP("vmovdq[ua] %s,%s\n", nameXMMReg(eregOfRM(modrm)),
                                       nameXMMReg(gregOfRM(modrm)));
                delta += 1;
            } else {
                addr = disAMode ( &alen, sorb, delta, dis_buf );
+               if (vex_66/*vmovdqa*/)
+                   gen_SEGV_if_not_16_aligned(addr);
                putXMMReg( gregOfRM(modrm),
                           loadLE(Ity_V128, mkexpr(addr)) );
-               DIP("vmovdqu %s,%s\n", dis_buf,
+               DIP("vmovdq[ua] %s,%s\n", dis_buf,
                                       nameXMMReg(gregOfRM(modrm)));
                delta += alen;
            }
            goto decode_success;
        }
-       if(opc == 0x7F && regV==0 && vex_F3 && vex_0F)
+       if(opc == 0x7F && regV==0 && (vex_F3||vex_66) && vex_0F)
        {
            /* VEX.128.F3.0F.WIG 7F /r
             * VMOVDQU xmm2/m128, xmm1 -- Move unaligned packed integer values from xmm1 to xmm2/m128. */
-           vex_printf("vex x86->IR: found VMOVDQU xmmA/m128, xmmB\n");
+           vex_printf("vex x86->IR: found VMOVDQ%c xmmA/m128, xmmB\n", vex_66 ? 'A' : 'U');
 
            modrm = getIByte(delta);
            if (epartIsReg(modrm)) {
                delta += 1;
                putXMMReg( eregOfRM(modrm),
                           getXMMReg(gregOfRM(modrm)) );
-               DIP("vmovdqu %s, %s\n", nameXMMReg(gregOfRM(modrm)),
-                                       nameXMMReg(eregOfRM(modrm)));
+               DIP("vmovdq[ua] %s, %s\n", nameXMMReg(gregOfRM(modrm)),
+                                          nameXMMReg(eregOfRM(modrm)));
            } else {
                addr = disAMode( &alen, sorb, delta, dis_buf );
+               if (vex_66/*vmovdqa*/)
+                   gen_SEGV_if_not_16_aligned(addr);
                delta += alen;
                storeLE( mkexpr(addr), getXMMReg(gregOfRM(modrm)) );
-               DIP("vmovdqu %s, %s\n", nameXMMReg(gregOfRM(modrm)), dis_buf);
+               DIP("vmovdq[ua] %s, %s\n", nameXMMReg(gregOfRM(modrm)), dis_buf);
            }
            goto decode_success;
        }
