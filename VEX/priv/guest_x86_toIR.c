@@ -8784,6 +8784,35 @@ DisResult disInstr_X86_WRK (
            goto decode_success;
        }
 
+       if(opc == 0x6E && regV==0 && !vex_L && vex_66 && vex_0F && !vex_W && !(vex_F2||vex_F3))
+       {
+           /* VEX.128.66.0F.W0 6E /r
+            * VMOVD xmm1, r32/m32 -- move 32 bits from E (mem or lo part xmm)
+            * to G (lo part xmm).  Upper part of G is zeroed out */
+
+           vex_printf("vex x86->IR: found VMOVD xmmA, xmmB/m32\n");
+
+           modrm = getIByte(delta);
+           if (epartIsReg(modrm)) {
+               delta += 1;
+               putXMMReg(
+                         gregOfRM(modrm),
+                         unop( Iop_32UtoV128, getIReg(4, eregOfRM(modrm)) )
+                        );
+               DIP("vmovd %s, %s\n",
+                   nameIReg(4,eregOfRM(modrm)), nameXMMReg(gregOfRM(modrm)));
+           } else {
+               addr = disAMode( &alen, sorb, delta, dis_buf );
+               delta += alen;
+               putXMMReg(
+                         gregOfRM(modrm),
+                         unop( Iop_32UtoV128,loadLE(Ity_I32, mkexpr(addr)) )
+                        );
+               DIP("vmovd %s, %s\n", dis_buf, nameXMMReg(gregOfRM(modrm)));
+           }
+           goto decode_success;
+       }
+
        if(opc == 0xEF && !vex_L && vex_66 && vex_0F && !(vex_F2||vex_F3))
        {
            /* VEX.128.66.0F.WIG EF /r
