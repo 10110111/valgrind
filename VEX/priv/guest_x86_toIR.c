@@ -8796,8 +8796,39 @@ DisResult disInstr_X86_WRK (
        }
        if(opc == 0xF6 && !vex_L && vex_0F38 && !(vex_66||vex_F3) && vex_F2)
        {
+           /* MULX r/m32, r32b, r32a = VEX.NDD.LZ.F2.0F38.W0 F6 /r */
+
            vex_printf("vex x86->IR: found MULX\n");
-           goto decode_failure;
+
+           const Int     size = 4;
+                         ty   = szToITy(size);
+           const IRTemp  src1 = newTemp(ty);
+           const IRTemp  src2 = newTemp(ty);
+           const IRTemp  res  = newTemp(Ity_I64);
+           const UChar   rm   = getUChar(delta);
+           const UChar   regE = eregOfRM(rm);
+           const UChar   regG = gregOfRM(rm);
+
+           assign( src1, getIReg(size,R_EDX) );
+           if (epartIsReg(rm)) {
+               assign( src2, getIReg(size,regE) );
+               DIP("mulx %s,%s,%s\n", nameIReg(size,regE),
+                   nameIReg(size,regV), nameIReg(size,regG));
+               delta++;
+           } else {
+               addr = disAMode (&alen, sorb, delta, dis_buf);
+               assign( src2, loadLE(ty, mkexpr(addr)) );
+               DIP("mulx %s,%s,%s\n", dis_buf, nameIReg(size,regV),
+                   nameIReg(size,regG));
+               delta += alen;
+           }
+
+           assign( res, binop(Iop_MullU32,
+                              mkexpr(src1), mkexpr(src2)) );
+           putIReg( size, regV, unop(Iop_64to32, mkexpr(res)) );
+           putIReg( size, regG, unop(Iop_64HIto32, mkexpr(res)) );
+           /* Flags aren't modified.  */
+           goto decode_success;
        }
        if(opc == 0xF5 && !vex_L && vex_0F38 && !(vex_66||vex_F3) && vex_F2)
        {
