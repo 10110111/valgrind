@@ -8660,10 +8660,45 @@ DisResult disInstr_X86_WRK (
            vex_printf("vex x86->IR: found PEXT\n");
            goto decode_failure;
        }
-       if(opc == 0xF0 && !vex_L && vex_0F3A && !(vex_66||vex_F3) && vex_F2)
+       if(opc == 0xF0 && !vex_L && !vex_W && vex_0F3A && !(vex_66||vex_F3) && vex_F2)
        {
+           /* RORX imm8, r/m32, r32a = VEX.LZ.F2.0F3A.W0 F0 /r /i */
+
            vex_printf("vex x86->IR: found RORX\n");
-           goto decode_failure;
+
+           const Int     size = 4;
+                         ty   = szToITy(size);
+           const IRTemp  src  = newTemp(ty);
+           const UChar   rm   = getUChar(delta);
+           const UChar   regE = eregOfRM(rm);
+           const UChar   regG = gregOfRM(rm);
+                 UChar   imm8;
+
+           if (epartIsReg(rm)) {
+               imm8 = getUChar(delta+1);
+               assign( src, getIReg(size,regE) );
+               DIP("rorx %d,%s,%s\n", imm8, nameIReg(size,regE),
+                                      nameIReg(size,regG));
+               delta += 2;
+           } else {
+               addr = disAMode (&alen, sorb, delta, dis_buf);
+               imm8 = getUChar(delta+alen);
+               assign( src, loadLE(ty, mkexpr(addr)) );
+               DIP("rorx %d,%s,%s\n", imm8, dis_buf, nameIReg(size,regG));
+               delta += alen + 1;
+           }
+           imm8 &= 8*size-1;
+
+           /* dst = (src >> imm8) | (src << (size-imm8)) */
+           putIReg( size, regG,
+                     imm8 == 0 ? mkexpr(src)
+                     : binop( mkSizedOp(ty,Iop_Or8),
+                              binop( mkSizedOp(ty,Iop_Shr8), mkexpr(src),
+                                     mkU8(imm8) ),
+                              binop( mkSizedOp(ty,Iop_Shl8), mkexpr(src),
+                                     mkU8(8*size-imm8) ) ) );
+           /* Flags aren't modified.  */
+           goto decode_success;
        }
        if(opc == 0xF7 && !vex_L && vex_0F38 && !(vex_66||vex_F2) && vex_F3)
        {
