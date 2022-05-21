@@ -9192,7 +9192,7 @@ DisResult disInstr_X86_WRK (
            goto decode_success;
        }
 
-       if(opc == 0x6C && !vex_L && vex_66 && vex_0F && (!vex_F2||vex_F3))
+       if(opc == 0x6C && !vex_L && vex_66 && vex_0F)
        {
            /* VEX.128.66.0F.WIG 6C/r
             * VPUNPCKLQDQ xmm1, xmm2, xmm3/m128 */
