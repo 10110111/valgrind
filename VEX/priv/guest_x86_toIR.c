@@ -9201,6 +9201,44 @@ DisResult disInstr_X86_WRK (
            goto decode_success;
        }
 
+       if((opc == 0x2E || opc == 0x2F) && vex_66 && vex_0F)
+       {
+           /* VEX.LIG.66.0F.WIG 2E /r = VUCOMISD xmm1, xmm2/m64
+            * or
+            * VEX.LIG.66.0F.WIG 2F /r VCOMISD xmm1, xmm2/m64 */
+           vex_printf("vex x86->IR: found V[U]COMISD\n");
+
+           IRTemp argL = newTemp(Ity_F64);
+           IRTemp argR = newTemp(Ity_F64);
+           modrm = getIByte(delta);
+           if (epartIsReg(modrm)) {
+               assign( argR, getXMMRegLane64F( eregOfRM(modrm), 0/*lowest lane*/ ) );
+               delta += 1;
+               DIP("v[u]comisd %s,%s\n", nameXMMReg(eregOfRM(modrm)),
+                                         nameXMMReg(gregOfRM(modrm)) );
+           } else {
+               addr = disAMode ( &alen, sorb, delta, dis_buf );
+               assign( argR, loadLE(Ity_F64, mkexpr(addr)) );
+               delta += alen;
+               DIP("v[u]comisd %s,%s\n", dis_buf,
+                                         nameXMMReg(gregOfRM(modrm)) );
+           }
+           assign( argL, getXMMRegLane64F( gregOfRM(modrm), 0/*lowest lane*/ ) );
+
+           stmt( IRStmt_Put( OFFB_CC_OP,   mkU32(X86G_CC_OP_COPY) ));
+           stmt( IRStmt_Put( OFFB_CC_DEP2, mkU32(0) ));
+           stmt( IRStmt_Put(
+                            OFFB_CC_DEP1,
+                            binop( Iop_And32,
+                                   binop(Iop_CmpF64, mkexpr(argL), mkexpr(argR)),
+                                   mkU32(0x45)
+                                 )));
+           /* Set NDEP even though it isn't used.  This makes redundant-PUT
+              elimination of previous stores to this field work better. */
+           stmt( IRStmt_Put( OFFB_CC_NDEP, mkU32(0) ));
+           goto decode_success;
+       }
+
        goto decode_failure;
    }
 
